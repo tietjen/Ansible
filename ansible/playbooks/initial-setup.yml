@@ -1,0 +1,159 @@
+---
+- name: Initial Setup - Debian 12.x VMs
+  hosts: proxmox_vms
+  become: true
+  gather_facts: true
+  
+  vars:
+    ansible_python_interpreter: /usr/bin/python3
+    
+  pre_tasks:
+    - name: Wait for system to be ready
+      wait_for_connection:
+        timeout: 300
+        
+    - name: Update apt cache
+      apt:
+        update_cache: yes
+        cache_valid_time: 3600
+      retries: 3
+      delay: 10
+      
+  tasks:
+    - name: Set hostname
+      hostname:
+        name: "{{ inventory_hostname }}"
+        
+    - name: Configure timezone
+      timezone:
+        name: "{{ system_config.timezone }}"
+        
+    - name: Configure locale
+      locale_gen:
+        name: "{{ system_config.locale }}"
+        state: present
+        
+    - name: Set locale
+      lineinfile:
+        path: /etc/default/locale
+        line: "LANG={{ system_config.locale }}"
+        create: yes
+        
+    - name: Install essential packages
+      apt:
+        name: "{{ package_config.essential_packages }}"
+        state: present
+        update_cache: yes
+        
+    - name: Install NTP packages
+      apt:
+        name: 
+          - ntp
+          - ntpdate
+        state: present
+        
+    - name: Configure NTP servers
+      template:
+        src: ntp.conf.j2
+        dest: /etc/ntp.conf
+        backup: yes
+        validate: 'ntpd -t -f %s'
+        
+    - name: Start and enable NTP service
+      systemd:
+        name: ntp
+        state: started
+        enabled: yes
+            
+    - name: Disable IPv6
+      sysctl:
+        name: "{{ item }}"
+        value: "1"
+        state: present
+        reload: yes
+      loop:
+        - net.ipv6.conf.all.disable_ipv6
+        - net.ipv6.conf.default.disable_ipv6
+        - net.ipv6.conf.lo.disable_ipv6
+        
+    - name: Configure static IP
+      template:
+        src: interfaces.j2
+        dest: /etc/network/interfaces
+        backup: yes
+        
+    - name: Configure DNS resolvers
+      template:
+        src: resolv.conf.j2
+        dest: /etc/resolv.conf
+        backup: yes
+            
+    - name: Configure kernel parameters
+      sysctl:
+        name: "{{ item }}"
+        value: "{{ item.split('=')[1] }}"
+        state: present
+        reload: yes
+      loop: "{{ system_config.kernel_params }}"
+      
+    - name: Check if swap exists
+      stat:
+        path: /swapfile
+      register: swap_file
+      
+    - name: Create swap file
+      command: dd if=/dev/zero of=/swapfile bs=1M count=2048
+      when: not swap_file.stat.exists
+      
+    - name: Set swap file permissions
+      file:
+        path: /swapfile
+        mode: '0600'
+      when: not swap_file.stat.exists
+      
+    - name: Make swap file
+      command: mkswap /swapfile
+      when: not swap_file.stat.exists
+      
+    - name: Enable swap
+      command: swapon /swapfile
+      when: not swap_file.stat.exists
+      
+    - name: Add swap to fstab
+      lineinfile:
+        path: /etc/fstab
+        line: "/swapfile none swap sw 0 0"
+        state: present
+      when: not swap_file.stat.exists
+          
+    - name: Configure system limits
+      template:
+        src: limits.conf.j2
+        dest: /etc/security/limits.conf
+        backup: yes
+        
+    - name: Configure logrotate
+      template:
+        src: logrotate.conf.j2
+        dest: /etc/logrotate.conf
+        backup: yes
+        
+    - name: Restart networking
+      systemd:
+        name: networking
+        state: restarted
+        
+  handlers:
+    - name: restart networking
+      systemd:
+        name: networking
+        state: restarted
+        
+    - name: restart ntp
+      systemd:
+        name: ntp
+        state: restarted
+        
+    - name: reload sysctl
+      command: sysctl -p
+      ignore_errors: yes 

@@ -1,0 +1,280 @@
+---
+- name: Security Hardening - CIS Benchmark Compliance
+  hosts: proxmox_vms
+  become: true
+  gather_facts: true
+  
+  vars:
+    ansible_python_interpreter: /usr/bin/python3
+    
+  tasks:
+    - name: Install security packages
+      apt:
+        name:
+          - auditd
+          - audispd-plugins
+          - fail2ban
+          - ufw
+          - apparmor
+          - apparmor-utils
+          - libpam-pwquality
+        state: present
+        update_cache: yes
+        
+    - name: Configure SSH security
+      blockinfile:
+        path: /etc/ssh/sshd_config
+        marker: "# {mark} ANSIBLE MANAGED BLOCK"
+        block: |
+          Protocol 2
+          HostKey /etc/ssh/ssh_host_rsa_key
+          HostKey /etc/ssh/ssh_host_ecdsa_key
+          HostKey /etc/ssh/ssh_host_ed25519_key
+          UsePrivilegeSeparation yes
+          KeyRegenerationInterval 3600
+          ServerKeyBits 1024
+          SyslogFacility AUTH
+          LogLevel INFO
+          LoginGraceTime 60
+          PermitRootLogin no
+          StrictModes yes
+          RSAAuthentication yes
+          PubkeyAuthentication yes
+          AuthorizedKeysFile .ssh/authorized_keys
+          IgnoreRhosts yes
+          RhostsRSAAuthentication no
+          HostbasedAuthentication no
+          PermitEmptyPasswords no
+          ChallengeResponseAuthentication no
+          PasswordAuthentication no
+          KerberosAuthentication no
+          KerberosOrLocalPasswd yes
+          KerberosTicketCleanup yes
+          GSSAPIAuthentication no
+          GSSAPICleanupCredentials yes
+          X11Forwarding no
+          X11DisplayOffset 10
+          PrintMotd no
+          PrintLastLog yes
+          TCPKeepAlive yes
+          UseLogin no
+          MaxStartups 10:30:60
+          Banner /etc/issue.net
+          AcceptEnv LANG LC_*
+          Subsystem sftp /usr/lib/openssh/sftp-server
+          UsePAM yes
+          ClientAliveInterval 300
+          ClientAliveCountMax 2
+          MaxAuthTries 3
+          AllowUsers debian
+          DenyUsers root
+        backup: yes
+        
+    - name: Restart SSH service
+      systemd:
+        name: ssh
+        state: restarted
+        
+    - name: Configure password quality
+      pam_pwquality:
+        name: common-password
+        password_quality: 12
+        minlen: 12
+        dcredit: -1
+        ucredit: -1
+        lcredit: -1
+        ocredit: -1
+        minclass: 4
+        maxrepeat: 3
+        maxsequence: 4
+        maxclassrepeat: 4
+        gecoscheck: 1
+        reject_username: 1
+        difok: 5
+        
+    - name: Configure password aging
+      pam_pwquality:
+        name: common-password
+        remember: 5
+        
+    - name: Configure account lockout
+      pam_tally2:
+        name: common-auth
+        deny: 3
+        unlock_time: 900
+        fail_interval: 900
+        
+    - name: Configure UFW firewall
+      ufw:
+        state: enabled
+        policy: deny
+        direction: incoming
+        rule: allow
+        port: "22"
+        proto: tcp
+        
+    - name: Allow HTTP and HTTPS
+      ufw:
+        rule: allow
+        port: "80,443"
+        proto: tcp
+        
+    - name: Configure fail2ban
+      template:
+        src: fail2ban.conf.j2
+        dest: /etc/fail2ban/jail.local
+        backup: yes
+        
+    - name: Start and enable fail2ban
+      systemd:
+        name: fail2ban
+        state: started
+        enabled: yes
+        
+    - name: Configure auditd
+      template:
+        src: audit.rules.j2
+        dest: /etc/audit/rules.d/ansible.rules
+        backup: yes
+        
+    - name: Start and enable auditd
+      systemd:
+        name: auditd
+        state: started
+        enabled: yes
+        
+    - name: Configure system file permissions
+      file:
+        path: "{{ item.path }}"
+        owner: "{{ item.owner }}"
+        group: "{{ item.group }}"
+        mode: "{{ item.mode }}"
+      loop:
+        - { path: "/etc/passwd", owner: "root", group: "root", mode: "0644" }
+        - { path: "/etc/shadow", owner: "root", group: "shadow", mode: "0640" }
+        - { path: "/etc/group", owner: "root", group: "root", mode: "0644" }
+        - { path: "/etc/gshadow", owner: "root", group: "shadow", mode: "0640" }
+        - { path: "/etc/ssh/sshd_config", owner: "root", group: "root", mode: "0600" }
+        - { path: "/etc/ssh/ssh_host_rsa_key", owner: "root", group: "root", mode: "0600" }
+        - { path: "/etc/ssh/ssh_host_ecdsa_key", owner: "root", group: "root", mode: "0600" }
+        - { path: "/etc/ssh/ssh_host_ed25519_key", owner: "root", group: "root", mode: "0600" }
+        
+    - name: Remove unnecessary packages
+      apt:
+        name:
+          - telnet
+          - rsh-client
+          - rsh-server
+          - rlogin
+          - talk
+          - talkd
+          - xinetd
+          - tftp
+          - tftpd
+        state: absent
+        purge: yes
+        
+    - name: Configure kernel security parameters
+      sysctl:
+        name: "{{ item.name }}"
+        value: "{{ item.value }}"
+        state: present
+        reload: yes
+      loop:
+        - { name: "net.ipv4.ip_forward", value: "0" }
+        - { name: "net.ipv4.conf.all.send_redirects", value: "0" }
+        - { name: "net.ipv4.conf.default.send_redirects", value: "0" }
+        - { name: "net.ipv4.conf.all.accept_source_route", value: "0" }
+        - { name: "net.ipv4.conf.default.accept_source_route", value: "0" }
+        - { name: "net.ipv4.conf.all.accept_redirects", value: "0" }
+        - { name: "net.ipv4.conf.default.accept_redirects", value: "0" }
+        - { name: "net.ipv4.conf.all.secure_redirects", value: "0" }
+        - { name: "net.ipv4.conf.default.secure_redirects", value: "0" }
+        - { name: "net.ipv4.conf.all.log_martians", value: "1" }
+        - { name: "net.ipv4.conf.default.log_martians", value: "1" }
+        - { name: "net.ipv4.route.flush", value: "1" }
+        - { name: "net.ipv4.icmp_echo_ignore_broadcasts", value: "1" }
+        - { name: "net.ipv4.icmp_ignore_bogus_error_responses", value: "1" }
+        - { name: "net.ipv4.conf.all.rp_filter", value: "1" }
+        - { name: "net.ipv4.conf.default.rp_filter", value: "1" }
+        - { name: "net.ipv4.tcp_syncookies", value: "1" }
+        - { name: "net.ipv4.tcp_max_syn_backlog", value: "2048" }
+        - { name: "net.core.somaxconn", value: "65535" }
+        - { name: "vm.swappiness", value: "10" }
+        
+    - name: Configure core dumps
+      sysctl:
+        name: "fs.suid_dumpable"
+        value: "0"
+        state: present
+        reload: yes
+        
+    - name: Disable core dumps
+      lineinfile:
+        path: /etc/security/limits.conf
+        line: "* hard core 0"
+        state: present
+        
+    - name: Configure message of the day
+      copy:
+        content: |
+          Authorized access only. All activities may be monitored and reported.
+        dest: /etc/motd
+        backup: yes
+        
+    - name: Configure issue banner
+      copy:
+        content: |
+          Authorized access only. All activities may be monitored and reported.
+        dest: /etc/issue
+        backup: yes
+        
+    - name: Configure issue.net banner
+      copy:
+        content: |
+          Authorized access only. All activities may be monitored and reported.
+        dest: /etc/issue.net
+        backup: yes
+        
+    - name: Configure cron security
+      file:
+        path: /etc/cron.allow
+        state: touch
+        mode: "0600"
+        owner: root
+        group: root
+        
+    - name: Configure at security
+      file:
+        path: /etc/at.allow
+        state: touch
+        mode: "0600"
+        owner: root
+        group: root
+        
+    - name: Configure user password expiration
+      user:
+        name: "{{ item }}"
+        password_expire: "{{ user_config.password_expiry_days }}"
+      loop: "{{ ansible_play_hosts }}"
+      when: item != "debian"
+      
+  handlers:
+    - name: restart ssh
+      systemd:
+        name: ssh
+        state: restarted
+        
+    - name: restart fail2ban
+      systemd:
+        name: fail2ban
+        state: restarted
+        
+    - name: restart auditd
+      systemd:
+        name: auditd
+        state: restarted
+        
+    - name: reload sysctl
+      command: sysctl -p
+      ignore_errors: yes 

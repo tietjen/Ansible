@@ -1,0 +1,157 @@
+---
+all:
+  children:
+    proxmox_vms:
+      hosts:
+        # These will be populated dynamically or manually
+        # Example structure:
+        # debian12-1:
+        #   ansible_host: 192.168.1.10
+        #   ansible_user: debian
+        #   vm_id: 100
+        #   vm_ip: 192.168.1.10
+        #   environment: production
+        #   role: web
+        #   tags:
+        #     - debian12
+        #     - managed
+        #     - terraform
+      vars:
+        ansible_ssh_private_key_file: ~/.ssh/id_rsa
+        ansible_ssh_common_args: "-o StrictHostKeyChecking=no"
+        ansible_user: debian
+        ansible_become: true
+        ansible_become_method: sudo
+        ansible_become_user: root
+        ansible_become_ask_pass: false
+        
+        # Network configuration
+        network_interface: eth0
+        network_gateway: "192.168.1.1"
+        network_dns:
+          - "8.8.8.8"
+          - "8.8.4.4"
+        
+        # System configuration
+        timezone: "UTC"
+        locale: "en_US.UTF-8"
+        
+        # Security configuration
+        security_level: "high"
+        firewall_enabled: true
+        fail2ban_enabled: true
+        
+        # Docker configuration
+        docker_version: "latest"
+        docker_compose_version: "v2.20.0"
+        docker_storage_driver: "overlay2"
+        
+        # Monitoring configuration
+        monitoring_enabled: true
+        log_retention_days: 30
+        
+    # Environment groups
+    production:
+      children:
+        proxmox_vms:
+      vars:
+        environment: production
+        backup_enabled: true
+        monitoring_level: "detailed"
+        
+    staging:
+      children:
+        proxmox_vms:
+      vars:
+        environment: staging
+        backup_enabled: false
+        monitoring_level: "basic"
+        
+    # Role-based groups
+    web_servers:
+      children:
+        proxmox_vms:
+      vars:
+        role: web
+        nginx_enabled: true
+        ssl_enabled: true
+        
+    database_servers:
+      children:
+        proxmox_vms:
+      vars:
+        role: database
+        mysql_enabled: true
+        backup_enabled: true
+        
+    application_servers:
+      children:
+        proxmox_vms:
+      vars:
+        role: application
+        docker_enabled: true
+        monitoring_enabled: true
+        
+    # Security groups
+    hardened:
+      children:
+        proxmox_vms:
+      vars:
+        security_level: "maximum"
+        audit_enabled: true
+        selinux_enabled: false  # Debian doesn't use SELinux by default
+        
+  vars:
+    # Global variables
+    ansible_python_interpreter: /usr/bin/python3
+    
+    # Network configuration
+    network_config:
+      ipv6_disabled: true
+      static_ip_enabled: true
+      dhcp_enabled: false
+      
+    # System configuration
+    system_config:
+      hostname_format: "{{ inventory_hostname }}"
+      ntp_enabled: true
+      ntp_servers:
+        - "pool.ntp.org"
+        - "time.google.com"
+        
+    # Package management
+    package_config:
+      update_cache: true
+      upgrade_packages: true
+      remove_unused: true
+      
+    # Security configuration
+    security_config:
+      ssh_config:
+        port: 22
+        permit_root_login: false
+        password_authentication: false
+        pubkey_authentication: true
+        max_auth_tries: 3
+        client_alive_interval: 300
+        client_alive_count_max: 2
+        
+    # Docker configuration
+    docker_config:
+      daemon_config:
+        storage_driver: "overlay2"
+        log_driver: "json-file"
+        log_opts:
+          max-size: "10m"
+          max-file: "3"
+        default_ulimits:
+          nofile:
+            name: nofile
+            soft: 64000
+            hard: 64000
+            
+    # Monitoring configuration
+    monitoring_config:
+      log_aggregation: true
+      metrics_collection: true
+      alerting_enabled: true 

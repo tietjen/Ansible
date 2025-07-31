@@ -1,0 +1,11 @@
+{
+  "default-address-pools": [
+    {
+      "base": "{{ docker_config.daemon_config.default_address_pools[0].base }}",
+      "size": {{ docker_config.daemon_config.default_address_pools[0].size }}
+    }
+  ],
+  "bridge": "{{ docker_config.daemon_config.bridge }}",
+  "ip-forward": {{ docker_config.daemon_config.ip_forward | lower }},
+  "iptables": {{ docker_config.daemon_config.iptables | lower }}
+} 

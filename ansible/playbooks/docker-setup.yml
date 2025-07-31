@@ -1,0 +1,231 @@
+---
+- name: Docker and Docker Compose Setup
+  hosts: proxmox_vms
+  become: true
+  gather_facts: true
+  
+  vars:
+    ansible_python_interpreter: /usr/bin/python3
+    
+  tasks:
+    - name: Install required packages
+      apt:
+        name:
+          - apt-transport-https
+          - ca-certificates
+          - curl
+          - gnupg
+          - lsb-release
+          - software-properties-common
+        state: present
+        update_cache: yes
+        
+    - name: Add Docker GPG key
+      apt_key:
+        url: https://download.docker.com/linux/debian/gpg
+        state: present
+        
+    - name: Add Docker repository
+      apt_repository:
+        repo: "deb [arch=amd64] https://download.docker.com/linux/debian {{ ansible_distribution_release }} stable"
+        state: present
+        filename: docker
+        
+    - name: Update apt cache
+      apt:
+        update_cache: yes
+        
+    - name: Install Docker CE
+      apt:
+        name:
+          - docker-ce
+          - docker-ce-cli
+          - containerd.io
+          - docker-buildx-plugin
+          - docker-compose-plugin
+        state: present
+        
+    - name: Create docker group
+      group:
+        name: docker
+        state: present
+        
+    - name: Add user to docker group
+      user:
+        name: "{{ ansible_user }}"
+        groups: docker
+        append: yes
+        
+    - name: Configure Docker daemon
+      template:
+        src: daemon.json.j2
+        dest: /etc/docker/daemon.json
+        backup: yes
+        validate: 'docker daemon --config-file %s'
+        
+    - name: Start and enable Docker service
+      systemd:
+        name: docker
+        state: started
+        enabled: yes
+        
+    - name: Install Docker Compose
+      get_url:
+        url: "https://github.com/docker/compose/releases/download/{{ docker_config.compose_version }}/docker-compose-linux-x86_64"
+        dest: /usr/local/bin/docker-compose
+        mode: '0755'
+        owner: root
+        group: root
+        
+    - name: Create Docker Compose symlink
+      file:
+        src: /usr/local/bin/docker-compose
+        dest: /usr/bin/docker-compose
+        state: link
+        
+    - name: Configure Docker logging
+      template:
+        src: logrotate.docker.j2
+        dest: /etc/logrotate.d/docker
+        backup: yes
+        
+    - name: Configure Docker security
+      copy:
+        content: |
+          # Docker security configuration
+          # Limit container capabilities
+          --security-opt=no-new-privileges
+          # Disable inter-container communication
+          --icc=false
+          # Use user namespace
+          --userns-remap=default
+        dest: /etc/docker/security.conf
+        backup: yes
+        
+    - name: Create Docker data directory
+      file:
+        path: /var/lib/docker
+        state: directory
+        owner: root
+        group: root
+        mode: '0711'
+        
+    - name: Configure Docker storage
+      template:
+        src: storage-driver.conf.j2
+        dest: /etc/docker/daemon.d/storage-driver.conf
+        backup: yes
+        
+    - name: Configure Docker networking
+      template:
+        src: network.conf.j2
+        dest: /etc/docker/daemon.d/network.conf
+        backup: yes
+        
+    - name: Restart Docker service
+      systemd:
+        name: docker
+        state: restarted
+        
+    - name: Wait for Docker to be ready
+      wait_for:
+        port: 2375
+        host: localhost
+        timeout: 60
+      ignore_errors: yes
+        
+    - name: Test Docker installation
+      command: docker --version
+      register: docker_version
+      changed_when: false
+      
+    - name: Test Docker Compose installation
+      command: docker-compose --version
+      register: compose_version
+      changed_when: false
+      
+    - name: Display Docker version
+      debug:
+        msg: "Docker version: {{ docker_version.stdout }}"
+        
+    - name: Display Docker Compose version
+      debug:
+        msg: "Docker Compose version: {{ compose_version.stdout }}"
+        
+    - name: Configure Docker service limits
+      template:
+        src: docker.service.j2
+        dest: /etc/systemd/system/docker.service.d/limits.conf
+        backup: yes
+        
+    - name: Reload systemd
+      systemd:
+        daemon_reload: yes
+        
+    - name: Restart Docker service with new limits
+      systemd:
+        name: docker
+        state: restarted
+        
+    - name: Create Docker Compose directory
+      file:
+        path: /opt/docker-compose
+        state: directory
+        owner: "{{ ansible_user }}"
+        group: docker
+        mode: '0755'
+        
+    - name: Create Docker Compose configuration
+      template:
+        src: docker-compose.yml.j2
+        dest: /opt/docker-compose/docker-compose.yml
+        owner: "{{ ansible_user }}"
+        group: docker
+        mode: '0644'
+        
+    - name: Configure Docker Compose environment
+      template:
+        src: env.j2
+        dest: /opt/docker-compose/.env
+        owner: "{{ ansible_user }}"
+        group: docker
+        mode: '0600'
+        
+    - name: Create Docker Compose service file
+      template:
+        src: docker-compose.service.j2
+        dest: /etc/systemd/system/docker-compose.service
+        backup: yes
+        
+    - name: Enable Docker Compose service
+      systemd:
+        name: docker-compose
+        state: started
+        enabled: yes
+        
+    - name: Configure Docker log rotation
+      template:
+        src: logrotate.docker.j2
+        dest: /etc/logrotate.d/docker
+        backup: yes
+        
+    - name: Configure Docker monitoring
+      template:
+        src: docker-monitoring.conf.j2
+        dest: /etc/docker/daemon.d/monitoring.conf
+        backup: yes
+        
+    - name: Final Docker restart
+      systemd:
+        name: docker
+        state: restarted
+        
+  handlers:
+    - name: restart docker
+      systemd:
+        name: docker
+        state: restarted
+        
+    - name: reload systemd
+      systemd:
+        daemon_reload: yes 

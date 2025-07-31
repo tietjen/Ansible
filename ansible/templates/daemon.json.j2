@@ -1,0 +1,30 @@
+{
+  "storage-driver": "{{ docker_config.storage_driver }}",
+  "log-driver": "{{ docker_config.daemon_config.log_driver }}",
+  "log-opts": {
+    "max-size": "{{ docker_config.daemon_config.log_opts.max_size }}",
+    "max-file": "{{ docker_config.daemon_config.log_opts.max_file }}"
+  },
+  "default-ulimits": {
+    "nofile": {
+      "name": "{{ docker_config.daemon_config.default_ulimits.nofile.name }}",
+      "soft": {{ docker_config.daemon_config.default_ulimits.nofile.soft }},
+      "hard": {{ docker_config.daemon_config.default_ulimits.nofile.hard }}
+    }
+  },
+  "live-restore": {{ docker_config.daemon_config.live_restore | lower }},
+  "userland-proxy": {{ docker_config.daemon_config.userland_proxy | lower }},
+  "ip-forward": {{ docker_config.daemon_config.ip_forward | lower }},
+  "iptables": {{ docker_config.daemon_config.iptables | lower }},
+  "bridge": "{{ docker_config.daemon_config.bridge }}",
+  "default-address-pools": [
+    {
+      "base": "{{ docker_config.daemon_config.default_address_pools[0].base }}",
+      "size": {{ docker_config.daemon_config.default_address_pools[0].size }}
+    }
+  ],
+  "experimental": false,
+  "metrics-addr": "127.0.0.1:9323",
+  "insecure-registries": [],
+  "registry-mirrors": []
+} 

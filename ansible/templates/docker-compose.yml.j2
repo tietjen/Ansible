@@ -1,0 +1,23 @@
+version: '3.8'
+
+services:
+  # Example service - customize as needed
+  app:
+    image: nginx:alpine
+    container_name: {{ inventory_hostname }}-app
+    restart: unless-stopped
+    ports:
+      - "80:80"
+    volumes:
+      - ./data:/usr/share/nginx/html
+    environment:
+      - NGINX_HOST={{ inventory_hostname }}
+    networks:
+      - app-network
+
+networks:
+  app-network:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.20.0.0/16 

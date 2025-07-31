@@ -1,0 +1,39 @@
+# Proxmox Configuration
+proxmox_api_url          = "https://proxmox.example.com:8006/api2/json"
+proxmox_token_id         = "terraform@pve!terraform"
+proxmox_token_secret     = "your-token-secret-here"
+proxmox_tls_insecure     = false
+proxmox_debug            = false
+proxmox_node             = "pve"
+
+# VM Configuration
+vm_count                 = 3
+vm_name_prefix           = "debian12"
+debian_template_name     = "debian-12-template"
+vm_cores                 = 2
+vm_sockets               = 1
+vm_memory                = 4096
+vm_disk_size             = "20G"
+vm_ssd                   = true
+storage_pool             = "local-lvm"
+
+# Network Configuration
+network_bridge           = "vmbr0"
+network_cidr             = 24
+network_gateway          = "192.168.1.1"
+
+# IP Pool for VMs (must have enough IPs for vm_count)
+vm_ip_pool = [
+  "192.168.1.10",
+  "192.168.1.11",
+  "192.168.1.12",
+  "192.168.1.13",
+  "192.168.1.14",
+  "192.168.1.15"
+]
+
+# VM User Configuration
+vm_user                  = "debian"
+vm_password              = "ChangeMe123!"
+vm_ssh_keys              = "ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABAQC..."
+vm_ssh_private_key       = "~/.ssh/id_rsa" 
